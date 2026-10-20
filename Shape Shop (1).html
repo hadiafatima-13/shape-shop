@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Shape Shop</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+:root{--bg1:#78350f;--bg2:#b45309;--card:#fff;--ink:#1e1b2e;--accent:#f59e0b;--good:#16a34a;--bad:#dc2626;--muted:#6b7280;}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--card:#1f2937;--ink:#f3f4f6;--muted:#9ca3af;}}
+:root[data-theme="dark"]{--card:#1f2937;--ink:#f3f4f6;--muted:#9ca3af;}
+*{box-sizing:border-box;}
+#bgCanvas{position:fixed;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;display:block;}
+body{margin:0;font-family:'Segoe UI',system-ui,sans-serif;background:linear-gradient(135deg,var(--bg1),var(--bg2));min-height:100vh;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);display:flex;justify-content:center;padding-left:12px;padding-right:12px;}
+.wrap{width:100%;max-width:680px;padding:20px 0 40px;position:relative;z-index:1;}
+h1{color:#fff;text-align:center;margin-bottom:2px;}
+.sub{color:#fef3c7;text-align:center;margin-bottom:14px;font-size:.9rem;}
+.card{background:var(--card);color:var(--ink);border-radius:16px;padding:18px;box-shadow:0 10px 30px rgba(0,0,0,.35);}
+.stats{display:flex;justify-content:space-between;font-weight:600;margin-bottom:8px;font-size:.9rem;}
+#stage{width:100%;height:210px;border-radius:12px;background:radial-gradient(circle at 50% 30%,#fffbeb,#fef3c7);cursor:grab;touch-action:none;display:block;}
+.hint{text-align:center;font-size:.75rem;color:var(--muted);margin-top:-4px;margin-bottom:6px;}
+.story{font-size:1.02rem;margin:8px 0 4px;line-height:1.4;}
+.inputRow{display:flex;gap:10px;margin-top:10px;align-items:center;}
+input[type=number]{flex:1;padding:10px;border-radius:10px;border:2px solid #d1d5db;font-size:1rem;}
+button.submit{padding:10px 18px;border-radius:10px;border:none;background:var(--accent);color:#fff;font-weight:700;cursor:pointer;}
+.feedback{min-height:24px;margin-top:10px;font-weight:600;}
+.next{display:none;margin-top:10px;padding:10px 18px;border-radius:10px;border:none;background:#3b82f6;color:#fff;font-weight:700;cursor:pointer;}
+.done{text-align:center;padding:16px;}
+.restart{margin-top:10px;padding:10px 20px;border-radius:10px;border:none;background:#3b82f6;color:#fff;font-weight:700;cursor:pointer;}
+</style>
+</head>
+<body>
+<canvas id="bgCanvas"></canvas>
+<div class="wrap">
+<h1>🏪 Shape Shop</h1>
+<div class="sub">Help the shopkeeper — solve real-life perimeter & area orders using the 3D model!</div>
+<div class="card" id="card"></div>
+</div>
+<script>
+
+// ---------- animated 3D background ----------
+(function(){
+  const canvas=document.getElementById('bgCanvas');
+  if(!canvas || typeof THREE==='undefined') return;
+  const bgRenderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true});
+  bgRenderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+  bgRenderer.setSize(window.innerWidth,window.innerHeight);
+  const bgScene=new THREE.Scene();
+  const bgCam=new THREE.PerspectiveCamera(55,window.innerWidth/window.innerHeight,0.1,100);
+  bgCam.position.set(0,0,9);
+  const bl=new THREE.DirectionalLight(0xffffff,1.1); bl.position.set(5,6,7); bgScene.add(bl);
+  bgScene.add(new THREE.AmbientLight(0xffffff,0.55));
+  const colors=[0xf59e0b,0x92400e];
+  const geos=[
+    new THREE.IcosahedronGeometry(1,0),
+    new THREE.TorusGeometry(0.7,0.24,10,26),
+    new THREE.OctahedronGeometry(1,0),
+    new THREE.TetrahedronGeometry(1.05,0),
+    new THREE.TorusKnotGeometry(0.55,0.16,64,8)
+  ];
+  const shapes=[];
+  const count = window.innerWidth<520? 7 : 12;
+  for(let i=0;i<count;i++){
+    const geo=geos[i%geos.length];
+    const wire=i%2===0;
+    const mat=new THREE.MeshStandardMaterial({color:colors[i%colors.length],wireframe:wire,transparent:true,opacity:wire?0.35:0.16,roughness:0.55,metalness:0.1});
+    const mesh=new THREE.Mesh(geo,mat);
+    const scl=0.5+Math.random()*0.9;
+    mesh.scale.set(scl,scl,scl);
+    mesh.position.set((Math.random()-0.5)*16,(Math.random()-0.5)*16,(Math.random()-0.5)*10-3);
+    mesh.rotation.set(Math.random()*Math.PI*2,Math.random()*Math.PI*2,Math.random()*Math.PI*2);
+    mesh.userData.rot={x:(Math.random()-0.5)*0.006,y:(Math.random()-0.5)*0.007};
+    mesh.userData.driftY=(Math.random()*0.006+0.002)*(Math.random()<0.5?1:-1);
+    bgScene.add(mesh); shapes.push(mesh);
+  }
+  function resizeBg(){ bgRenderer.setSize(window.innerWidth,window.innerHeight); bgCam.aspect=window.innerWidth/window.innerHeight; bgCam.updateProjectionMatrix(); }
+  window.addEventListener('resize',resizeBg);
+  function animateBg(){
+    requestAnimationFrame(animateBg);
+    shapes.forEach(s=>{
+      s.rotation.x+=s.userData.rot.x; s.rotation.y+=s.userData.rot.y;
+      s.position.y+=s.userData.driftY;
+      if(s.position.y>9) s.position.y=-9; if(s.position.y<-9) s.position.y=9;
+    });
+    bgCam.position.x = Math.sin(Date.now()*0.00007)*1.5;
+    bgCam.lookAt(0,0,0);
+    bgRenderer.render(bgScene,bgCam);
+  }
+  animateBg();
+})();
+function r(min,max){return Math.floor(min+Math.random()*(max-min+1));}
+
+// ---------- three.js scene ----------
+let renderer, scene, camera, group, dragging=false, lastX=0, lastY=0;
+function initThree(){
+  const canvas=document.getElementById('stage');
+  renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true});
+  scene=new THREE.Scene();
+  camera=new THREE.PerspectiveCamera(45,1,0.1,100);
+  camera.position.set(0,1.6,4.4);
+  const light=new THREE.DirectionalLight(0xffffff,1.1); light.position.set(3,5,4); scene.add(light);
+  scene.add(new THREE.AmbientLight(0xffffff,0.75));
+  group=new THREE.Group(); group.rotation.x=-0.25; scene.add(group);
+  resize(); window.addEventListener('resize',resize);
+  canvas.addEventListener('pointerdown',e=>{dragging=true;lastX=e.clientX;lastY=e.clientY;canvas.style.cursor='grabbing';});
+  window.addEventListener('pointerup',()=>{dragging=false;canvas.style.cursor='grab';});
+  window.addEventListener('pointermove',e=>{ if(!dragging)return; group.rotation.y += (e.clientX-lastX)*0.012; lastX=e.clientX; lastY=e.clientY; });
+  animate();
+}
+function resize(){ const canvas=document.getElementById('stage'); if(!canvas)return; const w=canvas.clientWidth||400,h=210; renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix(); }
+function animate(){ requestAnimationFrame(animate); if(group) group.rotation.y+=0.004; renderer.render(scene,camera); }
+function clearGroup(){ while(group.children.length){ const c=group.children.pop(); c.geometry&&c.geometry.dispose(); group.remove(c); } }
+function norm(vals){ const m=Math.max(...vals); const scale=2.6/m; return vals.map(v=>Math.max(0.35,v*scale)); }
+function slabFromShape(points,color){
+  const shape=new THREE.Shape();
+  shape.moveTo(points[0][0],points[0][1]);
+  for(let i=1;i<points.length;i++) shape.lineTo(points[i][0],points[i][1]);
+  shape.closePath();
+  const geo=new THREE.ExtrudeGeometry(shape,{depth:0.16,bevelEnabled:false});
+  geo.center(); geo.rotateX(-Math.PI/2);
+  return new THREE.Mesh(geo,new THREE.MeshStandardMaterial({color,side:THREE.DoubleSide}));
+}
+function showShape(kind,dims){
+  clearGroup();
+  let mesh;
+  if(kind==='rect'||kind==='square'){
+    const [l,w]=norm(dims);
+    mesh=new THREE.Mesh(new THREE.BoxGeometry(l,0.18,w), new THREE.MeshStandardMaterial({color:0xf59e0b}));
+  } else if(kind==='parallelogram'){
+    const [b,h]=norm(dims); const skew=b*0.3;
+    mesh=slabFromShape([[-b/2,-h/2],[b/2-skew,-h/2],[b/2,h/2],[-b/2-skew,h/2]],0x22c55e);
+  } else if(kind==='trapezium'){
+    const scaled=norm(dims); const a=scaled[0],b=scaled[1],h=scaled[2];
+    mesh=slabFromShape([[-a/2,-h/2],[a/2,-h/2],[b/2,h/2],[-b/2,h/2]],0x3b82f6);
+  } else if(kind==='triangle'){
+    const [b,h]=norm(dims);
+    mesh=slabFromShape([[-b/2,-h/2],[b/2,-h/2],[0,h/2]],0xec4899);
+  }
+  group.add(mesh);
+  const grid=new THREE.GridHelper(3.2,8,0xfcd34d,0xfde68a); grid.position.y=-0.2; group.add(grid);
+}
+
+function genProblems(){
+  const p=[];
+  {const l=r(8,20),w=r(4,15);
+   p.push({kind:'rect',dims:[l,w],emoji:'🧱',story:`A farmer wants to fence a rectangular field that is ${l} m long and ${w} m wide. How many metres of fencing (perimeter) does she need?`,
+    ans:2*(l+w), unit:'m'});}
+  {const s=r(4,12);
+   p.push({kind:'square',dims:[s,s],emoji:'🟧',story:`A square room has sides of ${s} m. How many square metres of tiles are needed to cover the floor (area)?`,
+    ans:s*s, unit:'m²'});}
+  {const l=r(5,10),w=r(3,8),price=r(2,6);
+   p.push({kind:'rect',dims:[l,w],emoji:'💰',story:`A rectangular wall is ${l} m by ${w} m. Paint costs Rs ${price} per m². What is the total cost to paint the wall (area × price)?`,
+    ans:l*w*price, unit:'Rs'});}
+  {const b=r(6,16),h=r(3,10);
+   p.push({kind:'parallelogram',dims:[b,h],emoji:'📐',story:`A parallelogram-shaped garden bed has base ${b} m and height (altitude) ${h} m. What is its area?`,
+    ans:b*h, unit:'m²'});}
+  {const a=r(4,10),b=r(6,14),h=r(3,8);
+   p.push({kind:'trapezium',dims:[a,b,h],emoji:'🏞️',story:`A trapezium-shaped plot has parallel sides ${a} m and ${b} m, with height ${h} m. Area = ½ × (sum of parallel sides) × height. What is the area?`,
+    ans:0.5*(a+b)*h, unit:'m²'});}
+  {const b=r(6,18),h=r(4,12);
+   p.push({kind:'triangle',dims:[b,h],emoji:'⛺',story:`A triangular sail has base ${b} m and height ${h} m. Area = ½ × base × height. What is the area of the sail?`,
+    ans:0.5*b*h, unit:'m²'});}
+  return p;
+}
+let problems=[], qi=0, score=0;
+function start(){ problems=genProblems(); qi=0; score=0; render(); }
+function render(){
+  const card=document.getElementById('card');
+  if(qi>=problems.length){
+    card.innerHTML=`<div class="done"><h2>🏁 Shop closed!</h2><p>Score: <b>${score} / ${problems.length}</b></p>
+    <p style="color:var(--muted);font-size:.9rem;">Covers: perimeter & area of rectangle/square, real-life cost problems, area of parallelogram, trapezium, and triangle.</p>
+    <button class="restart" onclick="start()">Play Again</button></div>`;
+    return;
+  }
+  const p=problems[qi];
+  card.innerHTML=`<div class="stats"><span>Order ${qi+1} of ${problems.length}</span><span>Score: ${score}</span></div>
+  <canvas id="stage"></canvas>
+  <div class="hint">Drag to rotate the model</div>
+  <div class="story">${p.emoji} ${p.story}</div>
+  <div class="inputRow"><input type="number" id="ans" placeholder="Your answer (${p.unit})" step="any"><button class="submit" id="submitBtn">Check</button></div>
+  <div class="feedback" id="fb"></div>
+  <button class="next" id="nextBtn">Next ▶</button>`;
+  initThree();
+  showShape(p.kind,p.dims);
+  document.getElementById('submitBtn').onclick=()=>{
+    const val=parseFloat(document.getElementById('ans').value);
+    const fb=document.getElementById('fb');
+    if(isNaN(val)){ fb.textContent='Type a number first!'; fb.style.color='var(--bad)'; return; }
+    document.getElementById('submitBtn').disabled=true; document.getElementById('ans').disabled=true;
+    if(Math.abs(val-p.ans)<0.05){ score++; fb.textContent=`✅ Correct — ${p.ans} ${p.unit}!`; fb.style.color='var(--good)'; }
+    else{ fb.textContent=`❌ Correct answer: ${p.ans} ${p.unit}`; fb.style.color='var(--bad)'; }
+    document.getElementById('nextBtn').style.display='inline-block';
+  };
+}
+document.addEventListener('click',e=>{ if(e.target && e.target.id==='nextBtn'){ qi++; render(); }});
+start();
+</script>
+</body>
+</html>
